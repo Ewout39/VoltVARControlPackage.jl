@@ -3,6 +3,7 @@ function variable_mc_load_power_VoltVar(pm::AbstractExplicitNeutralIVRModelVoltV
     int_dim = Dict(i => PMD._infer_int_dim_unit(load, false) for (i,load) in PMD.ref(pm, nw, :load))
     load_ids_VoltVAr = [id for (id,load) in PMD.ref(pm, nw, :load) if load["PV_setpoint"]=="VoltVAr"]
     phase_connections = Dict(id => load["connections"][1:end-1] for (id,load) in PMD.ref(pm, nw, :load) if load["PV_setpoint"]=="VoltVAr")
+    lambda_vars = [1, 2, 3, 4, 5, 6]
     println(load_ids_VoltVAr)
     #Define variables with starting values
     pd = PMD.var(pm, nw)[:pd] = Dict{Int,Any}(i => JuMP.@variable(pm.model,
@@ -18,7 +19,7 @@ function variable_mc_load_power_VoltVar(pm::AbstractExplicitNeutralIVRModelVoltV
 
     lambda = PMD.var(pm, nw)[:lambda] = Dict{Int,Any}(i => Dict{Int,Any}(
         c => JuMP.@variable(pm.model,
-            [k in 1:6],
+            [k in lambda_vars],
             base_name="$(nw)_lambda_$(i)_c$(c)",
             start = PMD.comp_start_value(PMD.ref(pm, nw, :load, i), "lambda_start", k, 0.0))
         for c in 1:int_dim[i]
@@ -202,8 +203,8 @@ function constraint_mc_load_power_VoltVar(pm::AbstractExplicitNeutralIVRModelVol
 
     for (c, p) in zip(1:int_dim, phases)
         lambda_c = lambda[c]
-        for (k, lambda_c_k) in lambda_c
-            JuMP.@constraint(pm.model, lambda_c_k >= 0)
+        for k in 1:6
+            JuMP.@constraint(pm.model, lambda_c[k] >= 0)
         end
         JuMP.@constraint(pm.model, sum(lambda_c[k] for k in 1:6) == 1)
         JuMP.@constraint(pm.model, lambda_c[1]*lambda_c[3] <= epsilon)
