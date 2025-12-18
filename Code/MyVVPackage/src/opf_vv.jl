@@ -40,7 +40,6 @@ function build_mc_opf(pm::AbstractExplicitNeutralIVRModelVoltVar)
     end
 
     for i in PMD.ids(pm, :transformer)
-        println("Adding transformer constraints for transformer id: ", i)
         PMD.constraint_mc_transformer_voltage(pm, i)
         PMD.constraint_mc_transformer_current(pm, i)
         PMD.constraint_mc_transformer_thermal_limit(pm, i)

@@ -57,9 +57,9 @@ function constraint_mc_load_current_wye_VoltVar(pm::AbstractExplicitNeutralIVRMo
     phases = connections[1:end-1]
     n = connections[end] #neutral conductor
 
-    for (idx, p) in enumerate(phases)
-        push!(crd, JuMP.@expression(pm.model, ((vr[p]-vr[n])*pd[idx] + (vi[p]-vi[n])*qd[idx])/((vr[p]-vr[n])^2 + (vi[p]-vi[n])^2)))
-        push!(cid, JuMP.@expression(pm.model, ((vi[p]-vi[n])*pd[idx] - (vr[p]-vr[n])*qd[idx])/((vr[p]-vr[n])^2 + (vi[p]-vi[n])^2)))
+    for (_, p) in enumerate(phases)
+        push!(crd, JuMP.@expression(pm.model, ((vr[p]-vr[n])*pd[p] + (vi[p]-vi[n])*qd[p])/((vr[p]-vr[n])^2 + (vi[p]-vi[n])^2)))
+        push!(cid, JuMP.@expression(pm.model, ((vi[p]-vi[n])*pd[p] - (vr[p]-vr[n])*qd[p])/((vr[p]-vr[n])^2 + (vi[p]-vi[n])^2)))
     end
 
     PMD.var(pm, nw, :crd)[id] = crd
@@ -74,9 +74,9 @@ function constraint_mc_load_current_wye_VoltVar(pm::AbstractExplicitNeutralIVRMo
     if report
         pd_bus = JuMP.NonlinearExpr[]
         qd_bus = JuMP.NonlinearExpr[]
-        for (idx, c) in enumerate(connections)
-            push!(pd_bus, JuMP.@expression(pm.model, crd_bus[idx]*vr[c] + cid_bus[idx]*vi[c]))
-            push!(qd_bus, JuMP.@expression(pm.model, -crd_bus[idx]*vi[c] + cid_bus[idx]*vr[c]))
+        for (_, c) in enumerate(connections)
+            push!(pd_bus, JuMP.@expression(pm.model, crd_bus[c]*vr[c] + cid_bus[c]*vi[c]))
+            push!(qd_bus, JuMP.@expression(pm.model, -crd_bus[c]*vi[c] + cid_bus[c]*vr[c]))
         end
         PMD.sol(pm, nw, :load, id)[:pd_bus] = JuMP.Containers.DenseAxisArray(pd_bus, connections)
         PMD.sol(pm, nw, :load, id)[:qd_bus] = JuMP.Containers.DenseAxisArray(qd_bus, connections)
@@ -189,7 +189,7 @@ function constraint_mc_load_power_VoltVar(pm::AbstractExplicitNeutralIVRModelVol
     bus_id = load["load_bus"]
     connections = load["connections"]
     breakpoints = load["VV_breakpoints"] 
-    Q_values = load["VV_Q_values"] 
+    Q_values = load["VV_Q_values"]
     S = load["S_rating"]
     
     vr = PMD.var(pm, nw, :vr, bus_id)
@@ -218,7 +218,7 @@ function constraint_mc_load_power_VoltVar(pm::AbstractExplicitNeutralIVRModelVol
         JuMP.@constraint(pm.model, lambda_c[3]*lambda_c[6] <= epsilon)
         JuMP.@constraint(pm.model, lambda_c[4]*lambda_c[6] <= epsilon)
         JuMP.@constraint(pm.model, sqrt((vr[p]-vr[n])^2 + (vi[p]-vi[n])^2) == sum(lambda_c[k]*breakpoints[k] for k in 1:6))
-        JuMP.@constraint(pm.model, qd[c] == sum(lambda_c[k]*Q_values[k] for k in 1:6))
-        JuMP.@constraint(pm.model, pd[c]^2 + qd[c]^2 <= S^2)
+        JuMP.@constraint(pm.model, qd[p] == sum(lambda_c[k]*Q_values[k] for k in 1:6))
+        JuMP.@constraint(pm.model, pd[p]^2 + qd[p]^2 <= S^2)
     end
 end
