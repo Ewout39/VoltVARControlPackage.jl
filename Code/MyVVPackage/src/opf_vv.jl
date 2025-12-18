@@ -1,4 +1,9 @@
+function solve_mc_opf(data::Union{Dict{String,<:Any},String}, model_type::Type, solver; build_mc_opf, kwargs...)
+    return PMD.solve_mc_model(data, model_type, solver, build_mc_opf; kwargs...)
+end
+
 function build_mc_opf(pm::AbstractExplicitNeutralIVRModelVoltVar)
+    println("Building MC OPF with Volt-VAR control")
     # Variables
     PMD.variable_mc_bus_voltage(pm)
     PMD.variable_mc_branch_current(pm)
@@ -13,36 +18,35 @@ function build_mc_opf(pm::AbstractExplicitNeutralIVRModelVoltVar)
     #variable_mc_load_current_VoltVar(pm) #Defines currents as variables for loads with VoltVAr control (if wanted)
 
     # Constraints
-    for i in ids(pm, :bus)
-
-        if i in ids(pm, :ref_buses)
+    for i in PMD.ids(pm, :bus)
+        if i in PMD.ids(pm, :ref_buses)
             PMD.constraint_mc_voltage_reference(pm, i)
         end
-
         PMD.constraint_mc_voltage_absolute(pm, i)
         PMD.constraint_mc_voltage_pairwise(pm, i)
     end
 
     # components should be constrained before KCL, or the bus current variables might be undefined
 
-    for id in ids(pm, :gen)
+    for id in PMD.ids(pm, :gen)
         PMD.constraint_mc_generator_power(pm, id)
         PMD.constraint_mc_generator_current(pm, id)
     end
 
-    for id in ids(pm, :load) 
-        PMD.constraint_mc_load_power(pm, id)
+    for id in PMD.ids(pm, :load) 
+        constraint_mc_load_power(pm, id)
         constraint_mc_load_current(pm, id)
         #constraint_mc_load_current_vars(pm, id) #adds constraints for VoltVAr loads if the currents are defined as variables
     end
 
-    for i in ids(pm, :transformer)
+    for i in PMD.ids(pm, :transformer)
+        println("Adding transformer constraints for transformer id: ", i)
         PMD.constraint_mc_transformer_voltage(pm, i)
         PMD.constraint_mc_transformer_current(pm, i)
         PMD.constraint_mc_transformer_thermal_limit(pm, i)
     end
 
-    for i in ids(pm, :branch)
+    for i in PMD.ids(pm, :branch)
         PMD.constraint_mc_current_from(pm, i)
         PMD.constraint_mc_current_to(pm, i)
         PMD.constraint_mc_bus_voltage_drop(pm, i)
@@ -52,7 +56,7 @@ function build_mc_opf(pm::AbstractExplicitNeutralIVRModelVoltVar)
         PMD.constraint_mc_thermal_limit_to(pm, i)
     end
 
-    for i in ids(pm, :switch)
+    for i in PMD.ids(pm, :switch)
         PMD.constraint_mc_switch_current(pm, i)
         PMD.constraint_mc_switch_state(pm, i)
 
@@ -60,7 +64,7 @@ function build_mc_opf(pm::AbstractExplicitNeutralIVRModelVoltVar)
         PMD.constraint_mc_switch_thermal_limit(pm, i)
     end
 
-    for i in ids(pm, :bus)
+    for i in PMD.ids(pm, :bus)
         PMD.constraint_mc_current_balance(pm, i)
     end
 
