@@ -3,7 +3,6 @@ function solve_mc_opf(data::Union{Dict{String,<:Any},String}, model_type::Type, 
 end
 
 function build_mc_opf(pm::AbstractExplicitNeutralIVRModelVoltVar)
-    println("Building MC OPF with Volt-VAR control")
     # Variables
     PMD.variable_mc_bus_voltage(pm)
     PMD.variable_mc_branch_current(pm)

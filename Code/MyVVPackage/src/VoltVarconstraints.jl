@@ -3,8 +3,7 @@ function variable_mc_load_power_VoltVar(pm::AbstractExplicitNeutralIVRModelVoltV
     int_dim = Dict(i => PMD._infer_int_dim_unit(load, false) for (i,load) in PMD.ref(pm, nw, :load))
     load_ids_VoltVAr = [id for (id,load) in PMD.ref(pm, nw, :load) if load["PV_setpoint"]=="VoltVAr"]
     phase_connections = Dict(id => load["connections"][1:end-1] for (id,load) in PMD.ref(pm, nw, :load) if load["PV_setpoint"]=="VoltVAr")
-    lambda_vars = [1, 2, 3, 4, 5, 6]
-    println(load_ids_VoltVAr)
+    #lambda_vars = [1, 2, 3, 4, 5, 6]
     #Define variables with starting values
     pd = PMD.var(pm, nw)[:pd] = Dict{Int,Any}(i => JuMP.@variable(pm.model,
             [c in phase_connections[i]], base_name="$(nw)_pd_$(i)",
@@ -17,18 +16,18 @@ function variable_mc_load_power_VoltVar(pm::AbstractExplicitNeutralIVRModelVoltV
         ) for i in load_ids_VoltVAr
     )
 
-    lambda = PMD.var(pm, nw)[:lambda] = Dict{Int,Any}(i => Dict{Int,Any}(
-        c => JuMP.@variable(pm.model,
-            [k in lambda_vars],
-            base_name="$(nw)_lambda_$(i)_c$(c)",
-            start = PMD.comp_start_value(PMD.ref(pm, nw, :load, i), "lambda_start", k, 0.0))
-        for c in 1:int_dim[i]
-    ) for i in load_ids_VoltVAr
-    )
+    #lambda = PMD.var(pm, nw)[:lambda] = Dict{Int,Any}(i => Dict{Int,Any}(
+    #    c => JuMP.@variable(pm.model,
+    #        [k in lambda_vars],
+    #        base_name="$(nw)_lambda_$(i)_c$(c)",
+    #        start = PMD.comp_start_value(PMD.ref(pm, nw, :load, i), "lambda_start", k, 0.0))
+    #    for c in 1:int_dim[i]
+    #) for i in load_ids_VoltVAr
+    #)
     #Ensure variables are reported in the solution
     report && IM.sol_component_value(pm, pmd_it_sym, nw, :load, :pd, load_ids_VoltVAr, pd)
     report && IM.sol_component_value(pm, pmd_it_sym, nw, :load, :qd, load_ids_VoltVAr, qd)
-    report && IM.sol_component_value(pm, pmd_it_sym, nw, :load, :lambda, load_ids_VoltVAr, lambda)
+    #report && IM.sol_component_value(pm, pmd_it_sym, nw, :load, :lambda, load_ids_VoltVAr, lambda)
 end
 
 function constraint_mc_load_current(pm::AbstractExplicitNeutralIVRModelVoltVar, id::Int; nw::Int=nw_id_default, report::Bool=true)
@@ -183,14 +182,17 @@ end
 
 function constraint_mc_load_power_VoltVar(pm::AbstractExplicitNeutralIVRModelVoltVar, id::Int; nw::Int=nw_id_default) #TODO needs to be fixed still
     load = PMD.ref(pm, nw, :load, id)
-    lambda = PMD.var(pm, nw, :lambda, id)
+    #lambda = PMD.var(pm, nw, :lambda, id)
 
-    epsilon = 1e-4
+    
+    epsilon2 = 1e-4
     bus_id = load["load_bus"]
     connections = load["connections"]
     breakpoints = load["VV_breakpoints"] 
     Q_values = load["VV_Q_values"]
     S = load["S_rating"]
+    pd_start = load["pd_start"][1]
+    qd_start = load["qd_start"][1]
     
     vr = PMD.var(pm, nw, :vr, bus_id)
     vi = PMD.var(pm, nw, :vi, bus_id)
@@ -201,24 +203,38 @@ function constraint_mc_load_power_VoltVar(pm::AbstractExplicitNeutralIVRModelVol
     int_dim = length(connections)-1
     n = connections[end] #neutral conductor
 
-    for (c, p) in zip(1:int_dim, phases)
-        lambda_c = lambda[c]
-        for k in 1:6
-            JuMP.@constraint(pm.model, lambda_c[k] >= 0)
-        end
-        JuMP.@constraint(pm.model, sum(lambda_c[k] for k in 1:6) == 1)
-        JuMP.@constraint(pm.model, lambda_c[1]*lambda_c[3] <= epsilon)
-        JuMP.@constraint(pm.model, lambda_c[1]*lambda_c[4] <= epsilon)
-        JuMP.@constraint(pm.model, lambda_c[1]*lambda_c[5] <= epsilon)
-        JuMP.@constraint(pm.model, lambda_c[1]*lambda_c[6] <= epsilon)
-        JuMP.@constraint(pm.model, lambda_c[2]*lambda_c[4] <= epsilon)
-        JuMP.@constraint(pm.model, lambda_c[2]*lambda_c[5] <= epsilon)
-        JuMP.@constraint(pm.model, lambda_c[2]*lambda_c[6] <= epsilon)
-        JuMP.@constraint(pm.model, lambda_c[3]*lambda_c[5] <= epsilon)
-        JuMP.@constraint(pm.model, lambda_c[3]*lambda_c[6] <= epsilon)
-        JuMP.@constraint(pm.model, lambda_c[4]*lambda_c[6] <= epsilon)
-        JuMP.@constraint(pm.model, sqrt((vr[p]-vr[n])^2 + (vi[p]-vi[n])^2) == sum(lambda_c[k]*breakpoints[k] for k in 1:6))
-        JuMP.@constraint(pm.model, qd[p] == sum(lambda_c[k]*Q_values[k] for k in 1:6))
-        JuMP.@constraint(pm.model, pd[p]^2 + qd[p]^2 <= S^2)
+    for p in phases
+        x = sqrt((vr[p]-vr[n])^2 + (vi[p]-vi[n])^2)
+        Q_curve = JuMP.@expression(pm.model, ifelse(pd_start == 0, 0, ifelse(x <= breakpoints[2], -0.44, ifelse(x <= breakpoints[3], 7.333*(x-0.92)-0.44, ifelse(x <= breakpoints[4], 0, ifelse(x <= breakpoints[5], 0.7333*(x-1.02), ifelse(x <= breakpoints[6], 0.44, 0.44)))))))
+        JuMP.@constraint(pm.model, qd[p] <= Q_curve + epsilon2)
+        JuMP.@constraint(pm.model, qd[p] >= Q_curve - epsilon2)
+        P_curve = JuMP.@expression(pm.model, ifelse(pd[p]^2 >= S^2 - qd[p]^2, S^2 - qd[p]^2, pd_start^2))
+        JuMP.@constraint(pm.model, pd[p]^2 == P_curve)
+        JuMP.@constraint(pm.model, pd[p] <= 0)
+        #JuMP.@constraint(pm.model, pd[p] == pd_start[1])  #Assuming pd is constant for now
     end
+
+    #for (c, p) in zip(1:int_dim, phases)
+        #lambda_c = lambda[c]
+        #for k in 1:6
+        #    JuMP.@constraint(pm.model, lambda_c[k] >= 0)
+        #end
+        #JuMP.@constraint(pm.model, sum(lambda_c[k] for k in 1:6) == 1)
+        #JuMP.@constraint(pm.model, lambda_c[1]*lambda_c[3] <= epsilon)
+        #JuMP.@constraint(pm.model, lambda_c[1]*lambda_c[4] <= epsilon)
+        #JuMP.@constraint(pm.model, lambda_c[1]*lambda_c[5] <= epsilon)
+        #JuMP.@constraint(pm.model, lambda_c[1]*lambda_c[6] <= epsilon)
+        #JuMP.@constraint(pm.model, lambda_c[2]*lambda_c[4] <= epsilon)
+        #JuMP.@constraint(pm.model, lambda_c[2]*lambda_c[5] <= epsilon)
+        #JuMP.@constraint(pm.model, lambda_c[2]*lambda_c[6] <= epsilon)
+        #JuMP.@constraint(pm.model, lambda_c[3]*lambda_c[5] <= epsilon)
+        #JuMP.@constraint(pm.model, lambda_c[3]*lambda_c[6] <= epsilon)
+        #JuMP.@constraint(pm.model, lambda_c[4]*lambda_c[6] <= epsilon)
+        #JuMP.@constraint(pm.model, sqrt((vr[p]-vr[n])^2 + (vi[p]-vi[n])^2) == sum(lambda_c[k]*breakpoints[k] for k in 1:6))
+        #JuMP.@constraint(pm.model, qd[p] <= sum(lambda_c[k]*Q_values[k] + epsilon2 for k in 1:6))
+        #JuMP.@constraint(pm.model, qd[p] >= sum(lambda_c[k]*Q_values[k] - epsilon2 for k in 1:6))
+        #JuMP.@constraint(pm.model, pd[p]^2 + qd[p]^2 <= S^2)
+    #   JuMP.@constraint(pm.model, pd[p] == pd_start[1])
+    #   JuMP.@constraint(pm.model, qd[p] == qd_start[1])
+    #end
 end
