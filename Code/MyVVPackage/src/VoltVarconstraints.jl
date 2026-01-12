@@ -185,12 +185,13 @@ function constraint_mc_load_power_VoltVar(pm::AbstractExplicitNeutralIVRModelVol
     #lambda = PMD.var(pm, nw, :lambda, id)
 
     
-    epsilon2 = 1e-4
+    epsilon2 = 1e-12
+    power_unit = 1e4
+    S = load["S_rating"]
     bus_id = load["load_bus"]
     connections = load["connections"]
     breakpoints = load["VV_breakpoints"] 
-    Q_values = load["VV_Q_values"]
-    S = load["S_rating"]
+    Q_values = load["VV_Q_values"].*S./power_unit
     pd_start = load["pd_start"][1]
     qd_start = load["qd_start"][1]
     
@@ -203,15 +204,19 @@ function constraint_mc_load_power_VoltVar(pm::AbstractExplicitNeutralIVRModelVol
     int_dim = length(connections)-1
     n = connections[end] #neutral conductor
 
+    #for p in phases
+    #    JuMP.@constraint(pm.model, pd[p] == pd_start)
+    #    JuMP.@constraint(pm.model, qd[p] == qd_start)
+    #end
+
     for p in phases
-        x = sqrt((vr[p]-vr[n])^2 + (vi[p]-vi[n])^2)
-        Q_curve = JuMP.@expression(pm.model, ifelse(pd_start == 0, 0, ifelse(x <= breakpoints[2], -0.44, ifelse(x <= breakpoints[3], 7.333*(x-0.92)-0.44, ifelse(x <= breakpoints[4], 0, ifelse(x <= breakpoints[5], 0.7333*(x-1.02), ifelse(x <= breakpoints[6], 0.44, 0.44)))))))
-        JuMP.@constraint(pm.model, qd[p] <= Q_curve + epsilon2)
-        JuMP.@constraint(pm.model, qd[p] >= Q_curve - epsilon2)
-        P_curve = JuMP.@expression(pm.model, ifelse(pd[p]^2 >= S^2 - qd[p]^2, S^2 - qd[p]^2, pd_start^2))
-        JuMP.@constraint(pm.model, pd[p]^2 == P_curve)
+        x = sqrt((vr[p])^2 + (vi[p])^2)
+        Q_curve = JuMP.@expression(pm.model, ifelse(pd_start >= -1e-6, 0.0, ifelse(x <= breakpoints[2], Q_values[2], ifelse(x <= breakpoints[3], ((Q_values[3]-Q_values[2])*(x-breakpoints[2])/(breakpoints[3]-breakpoints[2]))+Q_values[2], ifelse(x <= breakpoints[4], Q_values[3], ifelse(x <= breakpoints[5], (Q_values[5]-Q_values[4])*(x-breakpoints[4])/(breakpoints[5]-breakpoints[4])+Q_values[4], Q_values[5]))))))
+        JuMP.@constraint(pm.model, qd[p] == Q_curve)
+        #JuMP.@constraint(pm.model, qd[p] >= Q_curve - epsilon2)
+        P_curve = JuMP.@expression(pm.model, ifelse(pd[p]^2 >= S^2 - qd[p]^2, -sqrt(S^2 - qd[p]^2), pd_start))
+        JuMP.@constraint(pm.model, pd[p] == P_curve)
         JuMP.@constraint(pm.model, pd[p] <= 0)
-        #JuMP.@constraint(pm.model, pd[p] == pd_start[1])  #Assuming pd is constant for now
     end
 
     #for (c, p) in zip(1:int_dim, phases)
